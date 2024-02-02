@@ -1,0 +1,121 @@
+version: '1'
+services:
+    rabbitmq:
+        image: rabbitmq:management
+        container_name: rabbitmq
+        ports:
+            - 5672:5672
+            - 15672:15672
+        environment:
+            - RABBITMQ_DEFAULT_USER=root
+            - RABBITMQ_DEFAULT_PASS=1234
+        networks:
+            - net
+    redis:
+        image: redis:latest
+        container_name: redis
+        ports:
+            - 6379:6379
+        networks:
+            - net
+
+    celery-worker1:
+        container_name: celery-worker1
+        build:
+            context: app
+            target: builder
+        command:
+            celery -A app.app.celery_app worker -l info -c 200  -P gevent -n worker1@%h
+        depends_on:
+            rabbitmq:
+                condition: service_started
+            redis:
+                condition: service_started
+        networks:
+            - net
+
+    celery-worker2:
+        container_name: celery-worker2
+        build:
+            context: app
+            target: builder
+        command:
+            celery -A app.app.celery_app worker -l info -c 200  -P gevent -n worker2@%h
+        depends_on:
+            rabbitmq:
+                condition: service_started
+            redis:
+                condition: service_started
+        networks:
+            - net
+
+    celery-worker3:
+        container_name: celery-worker3
+        build:
+            context: app
+            target: builder
+        command:
+            celery -A app.app.celery_app worker -l info -c 10 -n worker3@%h -P gevent -Q queue1
+        depends_on:
+            rabbitmq:
+                condition: service_started
+            redis:
+                condition: service_started
+        networks:
+            - net
+
+    celery-beat:
+        container_name: celery-beat
+        build:
+            context: app
+            target: builder
+        command:
+            celery -A app.app.celery_app beat -l info
+        depends_on:
+            celery-worker1:
+                condition: service_started
+            celery-worker2:
+                condition: service_started
+            celery-worker3:
+                condition: service_started
+        networks:
+            - net
+
+    celery-flower:
+        container_name: celery-flower
+        build:
+            context: app
+            target: builder
+        command:
+            celery -A app.app.celery_app flower
+        networks:
+            - net
+        ports:
+            - 5555:5555
+        depends_on:
+            celery-beat:
+                condition: service_started
+    prometheus:
+        image: prom/prometheus
+        container_name: prometheus
+        ports:
+            - 9090:9090
+        volumes:
+            - ./prometheus.yml:/etc/prometheus/prometheus.yml
+        depends_on:
+            celery-flower:
+                condition: service_started
+        networks:
+            - net
+    grafana:
+        image: grafana/grafana
+        container_name: grafana
+        ports:
+            - 3000:3000
+        depends_on:
+            prometheus:
+                condition: service_started
+        networks:
+            - net
+networks:
+  net:
